@@ -7,7 +7,7 @@ info:
     - Autentikasi: Laravel Sanctum (Bearer Token)
     - Proteksi tambahan: Header X-Access-Key wajib untuk hampir semua endpoint kecuali webhook
 servers:
-  - url: https://production/api
+  - url: https://ecommerce-api-test-main-ghcwm7.laravel.cloud/api
     description: Production
   - url: http://localhost/api
     description: Local
