@@ -1,0 +1,406 @@
+openapi: 3.0.3
+info:
+  title: Ecommerce Simple API
+  version: 1.0.0
+  description: |
+    API e-commerce.
+    - Autentikasi: Laravel Sanctum (Bearer Token)
+    - Proteksi tambahan: Header X-Access-Key wajib untuk hampir semua endpoint kecuali webhook
+servers:
+  - url: https://production/api
+    description: Production
+  - url: http://localhost/api
+    description: Local
+paths:
+  /auth/daftar:
+    post:
+      tags: [Auth]
+      summary: Registrasi user baru
+      security:
+        - AccessKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nama, email, password]
+              properties:
+                nama:
+                  type: string
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 6
+      responses:
+        '201':
+          description: Berhasil registrasi
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+              examples:
+                success:
+                  value:
+                    pesan: Registrasi berhasil
+                    data:
+                      pengguna:
+                        id: 1
+                        name: User Baru
+                        email: userbaru@example.com
+                      token: "1|abcdef..."
+        '422':
+          description: Validasi gagal
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+  /auth/masuk:
+    post:
+      tags: [Auth]
+      summary: Login user
+      security:
+        - AccessKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Login sukses
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '422':
+          description: Kredensial salah
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+  /auth/keluar:
+    post:
+      tags: [Auth]
+      summary: Logout (cabut token)
+      security:
+        - AccessKey: []
+        - BearerToken: []
+      responses:
+        '200': { description: Logout sukses }
+        '401': { description: Tidak terautentik }
+  /auth/profil:
+    get:
+      tags: [Auth]
+      summary: Ambil profil user terautentik
+      security:
+        - AccessKey: []
+        - BearerToken: []
+      responses:
+        '200':
+          description: Data profil
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/User'
+        '401': { description: Unauthorized }
+  /produk:
+    get:
+      tags: [Produk]
+      summary: List produk (paginate)
+      security:
+        - AccessKey: []
+      parameters:
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/PaginatedProducts'
+  /produk/{id}:
+    get:
+      tags: [Produk]
+      summary: Detail produk
+      security:
+        - AccessKey: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Product'
+        '404': { description: Tidak ditemukan }
+  /checkout:
+    post:
+      tags: [Checkout]
+      summary: Buat order dan invoice pembayaran
+      security:
+        - AccessKey: []
+        - BearerToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items]
+              properties:
+                items:
+                  type: array
+                  items:
+                    type: object
+                    required: [product_id, jumlah]
+                    properties:
+                      product_id: { type: integer }
+                      jumlah: { type: integer, minimum: 1 }
+      responses:
+        '201':
+          description: Order dibuat
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pesan: { type: string }
+                  data:
+                    type: object
+                    properties:
+                      order:
+                        $ref: '#/components/schemas/Order'
+                      invoice:
+                        type: object
+                        description: Payload invoice dari service Xendit (stub / real)
+        '400': { description: Data tidak valid }
+        '401': { description: Unauthorized }
+  /riwayat:
+    get:
+      tags: [Riwayat]
+      summary: List order milik user
+      security:
+        - AccessKey: []
+        - BearerToken: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/PaginatedOrders'
+  /riwayat/{kode}:
+    get:
+      tags: [Riwayat]
+      summary: Detail order spesifik milik user
+      security:
+        - AccessKey: []
+        - BearerToken: []
+      parameters:
+        - in: path
+          name: kode
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Order'
+        '404': { description: Tidak ditemukan }
+  /webhook/xendit:
+    post:
+      tags: [Webhook]
+      summary: Callback pembayaran Xendit (update status order)
+      description: "Gunakan header x-callback-token sesuai env XENDIT_WEBHOOK_TOKEN"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                external_id: { type: string }
+                status: { type: string }
+      responses:
+        '200':
+          description: Diproses
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pesan: { type: string, example: ok }
+        '403': { description: Token webhook tidak valid }
+        '422': { description: external_id kosong }
+        '404': { description: Order tidak ditemukan }
+
+components:
+  securitySchemes:
+    AccessKey:
+      type: apiKey
+      in: header
+      name: X-Access-Key
+    BearerToken:
+      type: http
+      scheme: bearer
+      bearerFormat: Sanctum
+
+  schemas:
+    User:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        email: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    Product:
+      type: object
+      properties:
+        id: { type: integer }
+        nama: { type: string }
+        deskripsi: { type: string, nullable: true }
+        harga: { type: number, format: float }
+        stok: { type: integer }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    PaginatedProducts:
+      type: object
+      description: Objek pagination standar Laravel dalam field data
+      properties:
+        current_page: { type: integer }
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/Product' }
+        first_page_url: { type: string, nullable: true }
+        from: { type: integer, nullable: true }
+        last_page: { type: integer }
+        last_page_url: { type: string, nullable: true }
+        links:
+          type: array
+          items:
+            type: object
+            properties:
+              url: { type: string, nullable: true }
+              label: { type: string }
+              active: { type: boolean }
+        next_page_url: { type: string, nullable: true }
+        path: { type: string }
+        per_page: { type: integer }
+        prev_page_url: { type: string, nullable: true }
+        to: { type: integer, nullable: true }
+        total: { type: integer }
+    OrderItem:
+      type: object
+      properties:
+        product_id: { type: integer }
+        nama: { type: string }
+        harga: { type: number }
+        jumlah: { type: integer }
+        subtotal: { type: number }
+    Order:
+      type: object
+      properties:
+        id: { type: integer }
+        kode: { type: string }
+        user_id: { type: integer }
+        status: { type: string, example: menunggu_pembayaran }
+        total_harga: { type: number }
+        provider: { type: string, nullable: true }
+        provider_reference: { type: string, nullable: true }
+        dibayar_pada: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time, nullable: true }
+        updated_at: { type: string, format: date-time, nullable: true }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/OrderItem' }
+    PaginatedOrders:
+      type: object
+      description: Objek pagination standar Laravel dalam field data
+      properties:
+        current_page: { type: integer }
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/Order' }
+        first_page_url: { type: string, nullable: true }
+        from: { type: integer, nullable: true }
+        last_page: { type: integer }
+        last_page_url: { type: string, nullable: true }
+        links:
+          type: array
+          items:
+            type: object
+            properties:
+              url: { type: string, nullable: true }
+              label: { type: string }
+              active: { type: boolean }
+        next_page_url: { type: string, nullable: true }
+        path: { type: string }
+        per_page: { type: integer }
+        prev_page_url: { type: string, nullable: true }
+        to: { type: integer, nullable: true }
+        total: { type: integer }
+    AuthResponse:
+      type: object
+      properties:
+        pesan: { type: string }
+        data:
+          type: object
+          properties:
+            pengguna: { $ref: '#/components/schemas/User' }
+            token: { type: string }
+    CheckoutResponse:
+      type: object
+      properties:
+        pesan: { type: string }
+        data:
+          type: object
+          properties:
+            order: { $ref: '#/components/schemas/Order' }
+            invoice: { type: object }
+    ValidationError:
+      type: object
+      properties:
+        message: { type: string, example: 'The given data was invalid.' }
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items: { type: string }
+
+security:
+  - AccessKey: []
